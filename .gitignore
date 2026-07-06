@@ -216,3 +216,30 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# ==========================
+# SGPA-Net Project
+# ==========================
+
+# Dataset
+data/
+
+# Training outputs
+results/
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
+
+# TensorBoard logs
+runs/
+
+# Experiment logs
+logs/
+
+# VS Code
+.vscode/
+
+# macOS/Windows system files
+.DS_Store
+Thumbs.db
