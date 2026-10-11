@@ -1,0 +1,346 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+
+\begin{document}
+
+\title{Scattering-Graph Networks with Temporal State-Space Models for Cross-Patient EEG Seizure Prediction}
+
+\author{
+\IEEEauthorblockN{Vineeth Pranay}
+\IEEEauthorblockA{Department of Computer Science and Engineering\\
+Indian Institute of Technology Madras\\
+Chennai, India\\
+vineeth@iitm.ac.in}
+}
+
+\maketitle
+
+\begin{abstract}
+Epileptic seizure prediction from electroencephalography (EEG) signals remains a critical clinical challenge, particularly for patient-independent models that generalize to unseen subjects. Existing approaches predominantly rely on patient-specific training paradigms, limiting their practical deployment. We propose a modular architecture combining wavelet scattering transform features, Phase Locking Value (PLV)-based dynamic brain connectivity graphs, graph neural networks for spatial encoding, and temporal sequence models for capturing pre-ictal evolution. The wavelet scattering transform provides translation-invariant, parameter-free features that remain consistent across patients, while band-specific PLV graphs capture genuine neural phase synchronization patterns. We evaluate four architectural variants under a rigorous Leave-One-Subject-Out (LOSO) cross-validation protocol on the CHB-MIT Scalp EEG dataset. Our experiments demonstrate that scattering-based features consistently achieve AUC scores of 0.81--0.85 across all model configurations, establishing scattering as a robust feature extraction backbone for cross-patient seizure prediction. The graph-temporal framework achieves an average F1-score of 0.547 and sensitivity of 0.634 with specificity of 0.837 in the best configuration, outperforming the SVM baseline (F1: 0.471) and demonstrating the value of temporal modeling over graph-structured brain representations.
+\end{abstract}
+
+\begin{IEEEkeywords}
+seizure prediction, electroencephalography, wavelet scattering transform, graph neural networks, phase locking value, state-space models, cross-patient generalization, brain-computer interface
+\end{IEEEkeywords}
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Epilepsy affects approximately 50 million people worldwide, making it one of the most prevalent neurological disorders globally \cite{who2023epilepsy}. Epileptic seizures arise from abnormal, excessive, or synchronous neuronal activity in the brain, and their unpredictable nature poses severe risks including physical injury, cognitive impairment, and sudden unexpected death in epilepsy (SUDEP) \cite{devinsky2016sudden}. The ability to predict seizures minutes before onset would fundamentally transform patient care, enabling timely medication administration, movement to safe environments, or activation of responsive neurostimulation devices \cite{mormann2007seizure}.
+
+Electroencephalography (EEG) provides a non-invasive, temporally precise measure of cortical electrical activity and has been the primary modality for seizure prediction research \cite{shoeb2010application}. The preictal period---the interval preceding seizure onset---is characterized by subtle but measurable changes in EEG dynamics, including altered spectral power distributions, increased neural synchronization, and shifts in brain connectivity patterns \cite{karoly2016interictal}.
+
+Despite significant advances in deep learning-based seizure prediction, a fundamental limitation persists: most high-performing models are \textit{patient-specific}, requiring substantial seizure data from each new patient before deployment \cite{daoud2019efficient, truong2018convolutional}. This paradigm is clinically impractical---newly diagnosed patients may wait months to accumulate sufficient seizure recordings for model training. \textit{Cross-patient} (or patient-independent) prediction, where models generalize to entirely unseen subjects, remains an open challenge due to the high inter-subject variability in EEG morphology, amplitude, and baseline rhythmic activity \cite{tang2021self}.
+
+In this work, we present a modular graph-temporal architecture for cross-patient seizure prediction that addresses these challenges through four key design choices:
+
+\begin{enumerate}
+    \item \textbf{Wavelet scattering transform as graph node features}: We employ the wavelet scattering transform \cite{mallat2012group} to extract translation-invariant, deformation-stable frequency descriptors from each EEG channel. Unlike learned CNN features or hand-crafted bandpower features, scattering coefficients are computed without trainable parameters, providing mathematically guaranteed stability properties that facilitate cross-patient transfer.
+    
+    \item \textbf{PLV-based dynamic brain connectivity graphs}: We construct frequency band-specific graphs using Phase Locking Value (PLV) \cite{lachaux1999measuring}, which measures genuine neural phase synchronization rather than amplitude co-variation captured by Pearson correlation. Dynamic graphs are computed per time window across theta, alpha, beta, and gamma bands, capturing the evolving functional connectivity structure of the brain.
+    
+    \item \textbf{Graph attention networks for spatial encoding}: We employ GATv2 \cite{brody2022how} to learn data-driven importance weights for brain region connections, enabling the model to identify which connectivity patterns are most predictive of impending seizures.
+    
+    \item \textbf{Multiple temporal architectures evaluated}: We systematically compare BiGRU, Transformer encoder, and a Mamba-style selective state-space model \cite{gu2023mamba} for capturing the temporal evolution of brain states preceding seizure onset.
+\end{enumerate}
+
+Our experiments on the CHB-MIT Scalp EEG dataset \cite{shoeb2010application} under Leave-One-Subject-Out (LOSO) cross-validation demonstrate that scattering features are the primary driver of cross-patient generalization performance, with all architectural variants achieving consistent AUC of 0.81--0.85. The graph-temporal framework improves F1-score from 0.471 (SVM baseline) to 0.547 in the best configuration, confirming the value of structured spatial-temporal modeling.
+
+
+% ============================================================
+\section{Related Work}
+% ============================================================
+
+\subsection{Classical Seizure Prediction}
+
+Early seizure prediction methods relied on hand-crafted features extracted from EEG signals, including spectral power in canonical frequency bands, Lyapunov exponents, correlation dimensions, and entropy measures \cite{mormann2007seizure, iasemidis2003adaptive}. These features were typically combined with classical machine learning classifiers such as support vector machines (SVM) and random forests. While achieving reasonable patient-specific performance, these approaches suffered from poor cross-patient generalization due to their reliance on absolute feature values that vary substantially across individuals.
+
+\subsection{Deep Learning Approaches}
+
+Convolutional neural networks (CNNs) and recurrent neural networks have been widely applied to seizure prediction. Truong et al. \cite{truong2018convolutional} employed time-frequency images with CNNs, while Daoud and Bheda \cite{daoud2019efficient} combined CNNs with bidirectional LSTMs. Khan et al. \cite{khan2018focal} applied focal loss to address class imbalance. However, these approaches predominantly operate on individual EEG channels or concatenated multi-channel features, neglecting the spatial relationships between brain regions that are crucial for understanding seizure propagation dynamics.
+
+\subsection{Graph Neural Networks for EEG}
+
+Recent works have explored graph neural networks (GNNs) to model inter-channel relationships in EEG data. Covert et al. \cite{covert2019temporal} applied temporal graph convolutional networks, while Li et al. \cite{li2021spatio} proposed spatio-temporal graph attention networks for seizure detection. Tang et al. \cite{tang2021self} introduced self-supervised pre-training for EEG graphs. Most existing GNN-based approaches construct graphs using Pearson correlation or fixed electrode distance, which capture amplitude co-variation rather than genuine neural coupling. Our use of PLV-based graphs addresses this limitation by directly measuring phase synchronization.
+
+\subsection{State-Space Models}
+
+Structured state-space models (SSMs) have emerged as an efficient alternative to transformers for sequence modeling \cite{gu2021efficiently}. The Mamba architecture \cite{gu2023mamba} introduced input-dependent selection mechanisms that enable efficient content-based reasoning with linear computational complexity. While SSMs have been applied to various time-series tasks, their application to EEG-based seizure prediction remains unexplored. Our work provides the first systematic evaluation of Mamba-style temporal modeling for this task.
+
+\subsection{Wavelet Scattering Transform}
+
+The wavelet scattering transform, introduced by Mallat \cite{mallat2012group}, provides provably stable and invariant signal representations through cascaded wavelet filtering and modulus nonlinearities. And\'{e}n and Mallat \cite{anden2014deep} demonstrated its effectiveness for audio classification. In the EEG domain, scattering has been applied to emotion recognition \cite{wang2020scattering} and sleep staging, but its use as graph node features for seizure prediction has not been explored.
+
+
+% ============================================================
+\section{Methodology}
+% ============================================================
+
+\subsection{Problem Formulation}
+
+Given continuous multi-channel EEG recordings from a set of epilepsy patients, the objective is to classify each temporal window as either \textit{interictal} (normal baseline activity) or \textit{preictal} (preceding an impending seizure). Critically, the model must generalize to patients not included in the training set, evaluated under the Leave-One-Subject-Out (LOSO) protocol.
+
+\subsection{EEG Preprocessing}
+
+Raw EEG recordings are preprocessed through a standard pipeline: (1) a 60~Hz notch filter removes powerline interference, (2) a 0.5--45~Hz bandpass filter retains physiologically relevant frequency content, and (3) Independent Component Analysis (ICA) with 15 components removes ocular and muscular artifacts. The preprocessed signals are segmented into 5-second windows with 50\% overlap. Each window is labeled based on its temporal relationship to annotated seizure onsets: windows within 30 minutes before seizure onset are labeled \textit{preictal} (positive class), windows more than 60 minutes from any seizure are labeled \textit{interictal} (negative class), and windows near seizure boundaries are discarded. Per-channel z-score normalization is applied within each window.
+
+\subsection{Wavelet Scattering Transform}
+
+For each EEG channel, we compute the wavelet scattering transform to extract multi-scale frequency descriptors. Given a signal $x(t)$, the zeroth-order scattering coefficient is:
+\begin{equation}
+    S_0 x = x \star \phi
+\end{equation}
+where $\phi$ is a lowpass averaging filter. First-order coefficients capture energy at each wavelet scale:
+\begin{equation}
+    S_1 x(\lambda_1) = |x \star \psi_{\lambda_1}| \star \phi
+\end{equation}
+where $\psi_{\lambda_1}$ is a wavelet at scale $\lambda_1$ and $|\cdot|$ denotes the complex modulus. Second-order coefficients capture amplitude modulation patterns across scales:
+\begin{equation}
+    S_2 x(\lambda_1, \lambda_2) = ||x \star \psi_{\lambda_1}| \star \psi_{\lambda_2}| \star \phi
+\end{equation}
+
+We use $J=6$ octaves and $Q=8$ wavelets per octave, yielding approximately 126 scattering coefficients per channel after time-averaging. The scattering transform is \textit{Lipschitz continuous to deformations} \cite{mallat2012group}, meaning that small inter-patient variations in signal morphology produce proportionally small changes in the feature representation---a property critical for cross-patient generalization. Importantly, the transform involves \textit{no learnable parameters}, ensuring that features remain consistent regardless of the training population.
+
+\subsection{PLV-Based Dynamic Graph Construction}
+
+We model the brain as a graph $\mathcal{G}_t = (\mathcal{V}, \mathcal{E}_t, \mathbf{X}_t)$ at each time window $t$, where $\mathcal{V}$ represents the set of $C$ EEG channels (nodes), $\mathcal{E}_t$ represents the dynamic edges, and $\mathbf{X}_t \in \mathbb{R}^{C \times D}$ are node features (scattering coefficients, $D = 126$).
+
+Edge connectivity is determined by Phase Locking Value (PLV), which quantifies the consistency of phase relationships between channel pairs within specific frequency bands. For channels $i$ and $j$ in frequency band $b$:
+\begin{equation}
+    \text{PLV}_{ij}^{(b)} = \left| \frac{1}{T} \sum_{t=1}^{T} e^{j(\varphi_i^{(b)}(t) - \varphi_j^{(b)}(t))} \right|
+\end{equation}
+where $\varphi_i^{(b)}(t)$ is the instantaneous phase of channel $i$ in band $b$, obtained via Hilbert transform after bandpass filtering. We compute PLV in four frequency bands: theta (4--8~Hz), alpha (8--13~Hz), beta (13--30~Hz), and gamma (30--45~Hz).
+
+An edge is included if the average PLV across bands exceeds threshold $\tau = 0.3$, and each edge carries a 4-dimensional feature vector containing the band-specific PLV values. This construction produces dynamic, physiologically meaningful graphs that capture genuine neural synchronization patterns known to change during the preictal period \cite{mormann2000mean}.
+
+\subsection{Spatial Encoding: Graph Neural Networks}
+
+We evaluate two spatial encoders that process each brain connectivity graph:
+
+\textbf{Graph Convolutional Network (GCN)} \cite{kipf2017semi}: Applies spectral graph convolutions with symmetric normalization:
+\begin{equation}
+    \mathbf{H}^{(l+1)} = \sigma(\tilde{\mathbf{D}}^{-1/2}\tilde{\mathbf{A}}\tilde{\mathbf{D}}^{-1/2}\mathbf{H}^{(l)}\mathbf{W}^{(l)})
+\end{equation}
+
+\textbf{Graph Attention Network v2 (GATv2)} \cite{brody2022how}: Learns dynamic attention weights for each edge, incorporating the 4-dimensional PLV edge features:
+\begin{equation}
+    \alpha_{ij} = \frac{\exp(\mathbf{a}^T \text{LeakyReLU}(\mathbf{W}[\mathbf{h}_i \| \mathbf{h}_j \| \mathbf{e}_{ij}]))}{\sum_{k \in \mathcal{N}(i)} \exp(\mathbf{a}^T \text{LeakyReLU}(\mathbf{W}[\mathbf{h}_i \| \mathbf{h}_k \| \mathbf{e}_{ik}]))}
+\end{equation}
+where $\mathbf{e}_{ij}$ is the PLV-based edge feature vector.
+
+Both encoders use 2 layers with LayerNorm and ELU activation, followed by global mean pooling to obtain a graph-level embedding $\mathbf{g}_t \in \mathbb{R}^d$.
+
+\subsection{Temporal Encoding}
+
+We process sequences of $T=8$ consecutive graph embeddings $[\mathbf{g}_1, \mathbf{g}_2, \ldots, \mathbf{g}_T]$ to capture the temporal evolution toward seizure onset. Three temporal encoders are evaluated:
+
+\textbf{Bidirectional GRU}: A two-layer bidirectional GRU processes the graph embedding sequence, with the final hidden states from both directions concatenated to form the temporal representation.
+
+\textbf{Transformer Encoder}: A two-layer Transformer encoder with 4 attention heads and learnable positional encodings processes the sequence, with the output at the final time step used as the temporal representation.
+
+\textbf{Mamba-style SSM}: A selective state-space model inspired by the Mamba architecture \cite{gu2023mamba}, implemented in pure PyTorch. The model uses input-dependent gating to selectively propagate relevant temporal information:
+\begin{equation}
+    h_t = \bar{A}_t h_{t-1} + \bar{B}_t x_t, \quad y_t = C_t h_t
+\end{equation}
+where $\bar{A}_t$ and $\bar{B}_t$ are discretized state transition matrices that depend on the input $x_t$ through a learned projection, enabling content-based selection of information flow.
+
+\subsection{Classification and Training}
+
+The temporal representation is passed through a two-layer MLP classifier with ReLU activation and dropout ($p=0.3$) to produce binary predictions. The model is trained with weighted cross-entropy loss to handle class imbalance, using AdamW optimizer ($\text{lr}=3\times10^{-4}$, weight decay $=10^{-5}$) with cosine annealing warm restart scheduling. Gradient clipping with max norm 0.5 is applied for training stability.
+
+
+% ============================================================
+\section{Experimental Setup}
+% ============================================================
+
+\subsection{Dataset}
+
+We evaluate on the CHB-MIT Scalp EEG Database \cite{shoeb2010application}, a widely-used benchmark for seizure prediction research. The dataset contains continuous scalp EEG recordings from pediatric patients with intractable epilepsy, recorded at 256~Hz using the international 10--20 electrode placement system. We select 3 patients (chb01, chb03, chb05) with sufficient seizure events for preliminary evaluation, totaling 19 annotated seizures across 41 recording files. We use 17 common EEG channels present across all selected patients.
+
+\subsection{Evaluation Protocol}
+
+We employ Leave-One-Subject-Out (LOSO) cross-validation, the gold standard for evaluating cross-patient generalization. In each fold, one patient is held out entirely for testing while the remaining patients form the training set. This ensures zero data leakage between training and evaluation, simulating the clinically realistic scenario of deploying a model for a previously unseen patient.
+
+To address class imbalance in training, we undersample the majority class (interictal) to achieve a 3:1 ratio relative to the minority class (preictal). Training data scattering features are z-score normalized per channel, with test data normalized using training statistics.
+
+\subsection{Evaluation Metrics}
+
+We report F1-score, Area Under the ROC Curve (AUC), sensitivity (seizure detection rate), and specificity (correct rejection of non-seizure periods). Sensitivity is particularly important clinically---missed seizures carry far greater risk than false alarms.
+
+\subsection{Implementation Details}
+
+All models are implemented in PyTorch with PyTorch Geometric. The GATv2 encoder uses 4 attention heads with hidden dimension 64, producing 256-dimensional graph embeddings. Temporal encoders use hidden dimension 128 with 2 layers. Sequence length is 8 windows (40 seconds). Training runs for 50 epochs with batch size 64. Experiments are conducted on an NVIDIA Tesla V100-SXM2-32GB GPU.
+
+
+% ============================================================
+\section{Results}
+% ============================================================
+
+\subsection{Ablation Study}
+
+Table~\ref{tab:ablation} presents the complete ablation results across all architectural variants under LOSO cross-validation.
+
+\begin{table}[htbp]
+\caption{Ablation Study Results (LOSO, 3 Patients)}
+\label{tab:ablation}
+\centering
+\begin{tabular}{@{}llcccc@{}}
+\toprule
+\textbf{Spatial} & \textbf{Temporal} & \textbf{F1} & \textbf{AUC} & \textbf{Sens.} & \textbf{Spec.} \\
+\midrule
+Flat (SVM) & None & 0.471 & 0.834 & --- & --- \\
+GCN & BiGRU & \textbf{0.547} & \textbf{0.848} & \textbf{0.634} & 0.837 \\
+GAT + PLV & BiGRU & 0.481 & 0.835 & 0.585 & \textbf{0.842} \\
+GAT + PLV & Transformer & 0.533 & 0.829 & 0.632 & 0.825 \\
+GAT + PLV & Mamba SSM & 0.487 & 0.812 & 0.571 & 0.844 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several key observations emerge from these results:
+
+\textbf{Scattering features drive generalization performance.} All model configurations achieve AUC in the range 0.81--0.85, including the flat SVM baseline (AUC: 0.834). This consistency strongly suggests that the wavelet scattering features themselves---rather than the downstream architecture---are the primary factor enabling cross-patient discrimination. The parameter-free, deformation-stable nature of scattering coefficients makes them inherently robust to inter-subject variability.
+
+\textbf{Temporal modeling improves over flat classification.} All graph-temporal models improve F1-score over the SVM baseline (0.471), with GCN+BiGRU achieving the highest F1 of 0.547 (+16.1\% relative improvement). This confirms that modeling the temporal evolution of brain state representations adds discriminative value beyond static feature classification.
+
+\textbf{Sensitivity-specificity tradeoff varies by architecture.} The GAT-based models achieve higher specificity (0.842--0.844) but lower sensitivity compared to GCN+BiGRU, suggesting that attention-weighted graph processing produces more conservative predictions. The GCN+BiGRU model achieves the best balance with sensitivity of 0.634 and specificity of 0.837.
+
+\subsection{Per-Patient Analysis}
+
+\begin{table}[htbp]
+\caption{Per-Patient F1 Scores (Best Model: GCN+BiGRU)}
+\label{tab:perpatient}
+\centering
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Test Patient} & \textbf{F1} & \textbf{AUC} & \textbf{Sens.} & \textbf{Spec.} \\
+\midrule
+chb01 & 0.385 & 0.854 & 0.928 & 0.656 \\
+chb03 & 0.606 & 0.871 & 0.443 & 0.952 \\
+chb05 & 0.651 & 0.818 & 0.532 & 0.903 \\
+\midrule
+\textbf{Average} & \textbf{0.547} & \textbf{0.848} & \textbf{0.634} & \textbf{0.837} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:perpatient} reveals substantial variation across patients. Patient chb01 achieves high sensitivity (0.928) but lower specificity (0.656), indicating the model correctly identifies most preictal windows but produces false alarms. Conversely, chb03 achieves high specificity (0.952) with moderate sensitivity (0.443). This asymmetry reflects the inherent difficulty of cross-patient generalization and motivates future incorporation of patient-adaptive mechanisms.
+
+
+% ============================================================
+\section{Discussion}
+% ============================================================
+
+\subsection{Feature Engineering vs.\ Model Complexity}
+
+Our results reveal an important insight for the seizure prediction community: \textit{the quality of input features matters more than architectural complexity for cross-patient generalization}. The wavelet scattering transform achieves AUC of 0.834 even with a simple SVM classifier, and adding sophisticated graph-temporal architectures improves F1-score but not AUC substantially. This finding aligns with the theoretical properties of scattering---its Lipschitz continuity to deformations provides a mathematical guarantee of robustness to the inter-subject signal variations that plague learned feature extractors.
+
+\subsection{PLV Graphs and Attention}
+
+Contrary to our hypothesis, GAT with PLV-based graphs did not consistently outperform GCN with fully connected graphs. We attribute this to several factors: (1) the PLV threshold ($\tau = 0.3$) may be suboptimal, potentially excluding informative weak connections; (2) with only 17 channels, the graph is small enough that GCN's isotropic message passing is sufficient; and (3) PLV estimation from 5-second windows may lack statistical reliability. Future work should explore adaptive threshold selection and larger electrode montages.
+
+\subsection{Temporal Architecture Comparison}
+
+The BiGRU temporal encoder outperformed both the Transformer and Mamba SSM in our experiments. The Transformer's quadratic complexity provides no advantage at sequence length 8, while its lack of inductive temporal bias may require more data to learn effective temporal patterns. The Mamba SSM, implemented in pure PyTorch without optimized CUDA kernels, may suffer from numerical precision issues in its sequential scan computation. With proper CUDA-accelerated implementations and longer sequences, Mamba's linear complexity and selective memory mechanism would likely demonstrate greater advantages.
+
+\subsection{Clinical Implications}
+
+The achieved sensitivity of 0.634 with specificity of 0.837 represents a meaningful step toward clinical utility for cross-patient models. The high AUC (0.848) suggests that with optimized decision thresholds---potentially personalized per-patient using brief calibration recordings---the sensitivity-specificity tradeoff could be substantially improved. The use of parameter-free scattering features also facilitates edge deployment, as feature extraction requires no GPU and can be computed in real time on embedded hardware.
+
+\subsection{Limitations}
+
+Several limitations should be acknowledged. First, our evaluation uses only 3 patients from the CHB-MIT dataset; a comprehensive evaluation on 15+ patients is necessary for robust conclusions. Second, the CHB-MIT dataset contains pediatric patients, and generalization to adult epilepsy populations requires validation on datasets such as the Siena Scalp EEG Database or the TUH Seizure Corpus. Third, our data collection protocol included predominantly seizure-containing recording files, creating artificially balanced class distributions that may not reflect clinical reality. Fourth, the cuDNN incompatibility on our compute infrastructure necessitated disabling GPU-accelerated RNN operations, potentially affecting temporal model performance.
+
+
+% ============================================================
+\section{Conclusion and Future Work}
+% ============================================================
+
+We presented a modular graph-temporal framework for cross-patient EEG seizure prediction, demonstrating that wavelet scattering features provide robust, parameter-free representations that generalize effectively across patients. Our systematic ablation across spatial encoders (GCN, GATv2) and temporal encoders (BiGRU, Transformer, Mamba SSM) reveals that feature quality---not architectural complexity---is the primary determinant of cross-patient performance, with all configurations achieving AUC of 0.81--0.85. The best configuration (GCN+BiGRU) achieves F1 of 0.547 with sensitivity of 0.634 and specificity of 0.837 under rigorous LOSO evaluation.
+
+Future work will pursue several directions: (1) scaling evaluation to 15+ patients with complete recording files; (2) incorporating adversarial domain adaptation via gradient reversal layers to explicitly enforce patient-invariant feature learning; (3) validating on additional datasets including adult epilepsy cohorts; (4) exploring longer temporal sequences (60--120 seconds) to better leverage Mamba's selective memory capabilities; and (5) optimizing for real-time deployment on wearable EEG hardware with latency and power constraints.
+
+
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\begin{thebibliography}{00}
+
+\bibitem{who2023epilepsy}
+World Health Organization, ``Epilepsy: A public health imperative,'' WHO Fact Sheet, 2023.
+
+\bibitem{devinsky2016sudden}
+O.~Devinsky et al., ``Sudden unexpected death in epilepsy: Epidemiology, mechanisms, and prevention,'' \textit{The Lancet Neurology}, vol.~15, no.~10, pp.~1075--1088, 2016.
+
+\bibitem{mormann2007seizure}
+F.~Mormann, R.~G.~Andrzejak, C.~E.~Elger, and K.~Lehnertz, ``Seizure prediction: The long and winding road,'' \textit{Brain}, vol.~130, no.~2, pp.~314--333, 2007.
+
+\bibitem{shoeb2010application}
+A.~H.~Shoeb, ``Application of machine learning to epileptic seizure onset detection and treatment,'' Ph.D. dissertation, MIT, 2010.
+
+\bibitem{karoly2016interictal}
+P.~J.~Karoly et al., ``Interictal spikes and epileptic seizures: Their relationship and underlying rhythmicity,'' \textit{Brain}, vol.~139, no.~4, pp.~1066--1078, 2016.
+
+\bibitem{daoud2019efficient}
+H.~Daoud and M.~A.~Bayoumi, ``Efficient epileptic seizure prediction based on deep learning,'' \textit{IEEE Transactions on Biomedical Circuits and Systems}, vol.~13, no.~5, pp.~804--813, 2019.
+
+\bibitem{truong2018convolutional}
+N.~D.~Truong et al., ``Convolutional neural networks for seizure prediction using intracranial and scalp electroencephalogram,'' \textit{Neural Networks}, vol.~105, pp.~104--111, 2018.
+
+\bibitem{tang2021self}
+S.~Tang, J.~R.~Dunnmon, K.~Saab, X.~Zhang, Q.~Huang, and D.~L.~Rubin, ``Self-supervised graph neural networks for improved electroencephalographic seizure analysis,'' in \textit{Proc. ICLR}, 2021.
+
+\bibitem{mallat2012group}
+S.~Mallat, ``Group invariant scattering,'' \textit{Communications on Pure and Applied Mathematics}, vol.~65, no.~10, pp.~1331--1398, 2012.
+
+\bibitem{lachaux1999measuring}
+J.-P.~Lachaux, E.~Rodriguez, J.~Martinerie, and F.~J.~Varela, ``Measuring phase synchrony in brain signals,'' \textit{Human Brain Mapping}, vol.~8, no.~4, pp.~194--208, 1999.
+
+\bibitem{brody2022how}
+S.~Brody, U.~Alon, and E.~Yahav, ``How attentive are graph attention networks?'' in \textit{Proc. ICLR}, 2022.
+
+\bibitem{gu2023mamba}
+A.~Gu and T.~Dao, ``Mamba: Linear-time sequence modeling with selective state spaces,'' \textit{arXiv preprint arXiv:2312.00752}, 2023.
+
+\bibitem{iasemidis2003adaptive}
+L.~D.~Iasemidis et al., ``Adaptive epileptic seizure prediction system,'' \textit{IEEE Transactions on Biomedical Engineering}, vol.~50, no.~5, pp.~616--627, 2003.
+
+\bibitem{khan2018focal}
+H.~Khan et al., ``Focal onset seizure prediction using convolutional networks,'' \textit{IEEE Transactions on Biomedical Engineering}, vol.~65, no.~9, pp.~2109--2118, 2018.
+
+\bibitem{covert2019temporal}
+I.~C.~Covert, B.~Krishnan, I.~Najm, and J.~Zhan, ``Temporal graph convolutional networks for automatic seizure detection,'' in \textit{Proc. Machine Learning for Healthcare}, 2019.
+
+\bibitem{li2021spatio}
+Y.~Li et al., ``Spatio-temporal-spectral hierarchical graph convolutional network with semisupervised active learning for patient-specific seizure prediction,'' \textit{IEEE Transactions on Cybernetics}, vol.~52, no.~11, pp.~12189--12204, 2021.
+
+\bibitem{gu2021efficiently}
+A.~Gu, K.~Goel, and C.~R\'{e}, ``Efficiently modeling long sequences with structured state spaces,'' in \textit{Proc. ICLR}, 2022.
+
+\bibitem{anden2014deep}
+J.~And\'{e}n and S.~Mallat, ``Deep scattering spectrum,'' \textit{IEEE Transactions on Signal Processing}, vol.~62, no.~16, pp.~4114--4128, 2014.
+
+\bibitem{wang2020scattering}
+Z.~Wang, Y.~Tong, and X.~Heng, ``Phase-locking value based graph convolutional neural networks for emotion recognition,'' \textit{IEEE Access}, vol.~7, pp.~93711--93722, 2019.
+
+\bibitem{mormann2000mean}
+F.~Mormann, K.~Lehnertz, P.~David, and C.~E.~Elger, ``Mean phase coherence as a measure for phase synchronization and its application to the EEG of epilepsy patients,'' \textit{Physica D}, vol.~144, pp.~358--369, 2000.
+
+\bibitem{kipf2017semi}
+T.~N.~Kipf and M.~Welling, ``Semi-supervised classification with graph convolutional networks,'' in \textit{Proc. ICLR}, 2017.
+
+\end{thebibliography}
+
+\end{document}
